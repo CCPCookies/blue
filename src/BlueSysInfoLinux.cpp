@@ -5,6 +5,7 @@
 #include "BlueUtf8Posix.h"
 #include "pdm.h"
 
+#include <algorithm>
 #include <sstream>
 #include <fstream>
 #include <filesystem>
@@ -223,20 +224,29 @@ uint64_t BlueSysInfo::GetProcessStartTime() const
 
 std::string BlueSysInfo::GetMachineUuid() const
 {
-	std::ifstream machineId( "/etc/machine-id" );
-
-	if( !machineId.is_open() )
+	// systemd keeps the machine ID in /etc/machine-id; systems without systemd only have the D-Bus
+	// copy. Minimal containers often have neither, or an empty file, in which case there is no
+	// machine ID and we return an empty string like the other platforms do on failure.
+	for( const char* path : { "/etc/machine-id", "/var/lib/dbus/machine-id" } )
 	{
-		return "";
+		std::ifstream machineId( path );
+		std::string id;
+		if( !std::getline( machineId, id ) )
+		{
+			continue;
+		}
+		id.erase( id.find_last_not_of( " \t\r" ) + 1 );
+
+		// A valid ID is 32 lower case hex characters. Anything else, including the literal
+		// "uninitialized" written during first boot, is not a usable machine ID.
+		const bool valid = id.size() == 32 &&
+			std::all_of( id.begin(), id.end(), []( char c ) { return ( c >= '0' && c <= '9' ) || ( c >= 'a' && c <= 'f' ); } );
+		if( valid )
+		{
+			return id;
+		}
 	}
-
-	std::string machineUuid = "";
-
-	std::getline( machineId, machineUuid );
-
-	machineId.close();
-
-	return machineUuid;
+	return "";
 }
 
 std::wstring BlueSysInfo::GetMachineName() const

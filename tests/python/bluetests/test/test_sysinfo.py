@@ -98,9 +98,36 @@ class TestSysInfo(unittest.TestCase):
         self.assertLess(start, now)
         self.assertLess(now - start, 10 * 60 * 60)
 
-    @unittest.skipIf(sys.platform.startswith("linux"), "Not supported on Linux, we run tests in a containerized environment.")
+    @staticmethod
+    def _linuxMachineIdAvailable():
+        """True if the system has a valid machine ID. Minimal containers often do not."""
+        for path in ('/etc/machine-id', '/var/lib/dbus/machine-id'):
+            try:
+                with open(path) as f:
+                    value = f.readline().strip()
+            except OSError:
+                continue
+            if len(value) == 32 and all(c in '0123456789abcdef' for c in value):
+                return True
+        return False
+
     def testMachineUuidIsNotEmpty(self):
+        if sys.platform.startswith('linux') and not self._linuxMachineIdAvailable():
+            self.skipTest('This system has no machine ID (common in containers)')
         self.assertNotEqual(blue.sysinfo.machineUuid, '')
+
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux machine ID format')
+    def testMachineUuidIsValidLinuxMachineIdOrEmpty(self):
+        machineUuid = blue.sysinfo.machineUuid
+        if machineUuid:
+            self.assertEqual(len(machineUuid), 32)
+            self.assertTrue(all(c in '0123456789abcdef' for c in machineUuid), machineUuid)
+        else:
+            self.assertFalse(self._linuxMachineIdAvailable(), 'machine ID exists but blue returned none')
+
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux machine ID format')
+    def testMachineUuidIsStable(self):
+        self.assertEqual(blue.sysinfo.machineUuid, blue.sysinfo.machineUuid)
 
     def testComputerNameIsNotEmpty(self):
         self.assertNotEqual(blue.sysinfo.computerName, '')
