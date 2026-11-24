@@ -12,6 +12,10 @@
 #include <mach-o/dyld.h>
 #endif
 
+#if __linux__
+#include <unistd.h>
+#endif
+
 #if __APPLE__ || __linux__
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -193,6 +197,19 @@ private:
 				strcpy_s( m_executablePath, _TRUNCATE, path );
 				free( path );
 			}
+		}
+#elif defined( __linux__ )
+		char buffer[1024] = { 0 };
+		if( gethostname( buffer, sizeof( buffer ) - 1 ) == 0 )
+		{
+			strcpy_s( m_machineName, _TRUNCATE, buffer );
+		}
+		// readlink does not null-terminate, so leave room for the terminator
+		const ssize_t length = readlink( "/proc/self/exe", buffer, sizeof( buffer ) - 1 );
+		if( length > 0 )
+		{
+			buffer[length] = '\0';
+			strcpy_s( m_executablePath, _TRUNCATE, buffer );
 		}
 #endif
 	}

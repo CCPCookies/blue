@@ -2,58 +2,170 @@
 
 #include "StdAfx.h"
 #include "BlueSysInfo.h"
+#include "BlueUtf8Posix.h"
 #include "pdm.h"
 
 #include <sstream>
 #include <fstream>
 #include <filesystem>
 
+#include <netdb.h>
+#include <unistd.h>
+
 namespace
 {
 const int64_t s_startTime = TimeNow();
+
+std::string GetHomeDirectory()
+{
+	const char* home = std::getenv( "HOME" );
+	return home ? std::string( home ) : std::string();
+}
+
+/*
+	Looks up XDG_DOCUMENTS_DIR. It is normally not an environment variable but an entry in
+	$XDG_CONFIG_HOME/user-dirs.dirs (written by xdg-user-dirs), e.g.
+		XDG_DOCUMENTS_DIR="$HOME/Documents"
+	An environment variable of the same name takes precedence. Returns an empty string if not set.
+*/
+std::string GetXdgDocumentsDirectory( const std::string& home )
+{
+	if( const char* fromEnvironment = std::getenv( "XDG_DOCUMENTS_DIR" ) )
+	{
+		return fromEnvironment;
+	}
+
+	std::string configHome;
+	if( const char* xdgConfigHome = std::getenv( "XDG_CONFIG_HOME" ) )
+	{
+		configHome = xdgConfigHome;
+	}
+	else if( !home.empty() )
+	{
+		configHome = home + "/.config";
+	}
+	else
+	{
+		return {};
+	}
+
+	std::ifstream userDirs( configHome + "/user-dirs.dirs" );
+	std::string line;
+	const std::string key = "XDG_DOCUMENTS_DIR=";
+	while( std::getline( userDirs, line ) )
+	{
+		if( line.compare( 0, key.size(), key ) != 0 )
+		{
+			continue;
+		}
+
+		std::string value = line.substr( key.size() );
+		if( value.size() >= 2 && value.front() == '"' && value.back() == '"' )
+		{
+			value = value.substr( 1, value.size() - 2 );
+		}
+
+		const std::string homeToken = "$HOME";
+		if( value.compare( 0, homeToken.size(), homeToken ) == 0 )
+		{
+			value = home + value.substr( homeToken.size() );
+		}
+		return value;
+	}
+	return {};
+}
+
+/*
+	Returns the host name as reported by the OS, which may or may not be fully qualified.
+*/
+std::string GetHostName()
+{
+	char buffer[HOST_NAME_MAX + 1] = {};
+	if( gethostname( buffer, sizeof( buffer ) - 1 ) != 0 )
+	{
+		return {};
+	}
+	return buffer;
+}
+
+/*
+	Returns the fully qualified host name if one can be determined, otherwise the plain host name.
+*/
+std::string GetFullyQualifiedHostName()
+{
+	std::string host = GetHostName();
+	if( host.empty() || host.find( '.' ) != std::string::npos )
+	{
+		return host;
+	}
+
+	addrinfo hints = {};
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_flags = AI_CANONNAME;
+	addrinfo* info = nullptr;
+	if( getaddrinfo( host.c_str(), nullptr, &hints, &info ) == 0 && info )
+	{
+		if( info->ai_canonname )
+		{
+			host = info->ai_canonname;
+		}
+		freeaddrinfo( info );
+	}
+	return host;
+}
+
+/*
+	Reads an integer field such as "cpu family" from /proc/cpuinfo. Not every architecture
+	reports every field (ARM has no "cpu family"), so missing fields return the fallback.
+*/
+int ReadCpuInfoField( const std::string& field, int fallback )
+{
+	std::ifstream cpuInfo( "/proc/cpuinfo" );
+	std::string line;
+	while( std::getline( cpuInfo, line ) )
+	{
+		auto colon = line.find( ':' );
+		if( colon == std::string::npos )
+		{
+			continue;
+		}
+		std::string key = line.substr( 0, colon );
+		key.erase( key.find_last_not_of( " \t" ) + 1 );
+		if( key == field )
+		{
+			try
+			{
+				return std::stoi( line.substr( colon + 1 ) );
+			}
+			catch( const std::exception& )
+			{
+				return fallback;
+			}
+		}
+	}
+	return fallback;
+}
 }
 
 std::wstring BlueSysInfo::GetUserDocumentsDirectory() const
 {
-	const char* xdgDataHome = std::getenv( "XDG_DOCUMENTS_DIR" );
+	const std::string home = GetHomeDirectory();
 
-
-	std::string path;
-
-	if( xdgDataHome )
+	std::string path = GetXdgDocumentsDirectory( home );
+	if( path.empty() && !home.empty() )
 	{
-		path = xdgDataHome;
-	}
-	else
-	{
-		const char* home = std::getenv( "HOME" );
-
-		if( !home )
-		{
-			return L"";
-		}
-		path = std::string( home ) + "/Documents";
+		path = home + "/Documents";
 	}
 
-	if( std::filesystem::exists( path ) )
+	std::error_code error;
+	if( !path.empty() && std::filesystem::is_directory( path, error ) )
 	{
-		return std::wstring( path.begin(), path.end() );
+		return BlueUtf8ToWide( path );
 	}
-	else
-	{
-		// Fallback to home if not present
-		// Tests expect a valid path
-		// LINUX-TODO though this may not be a good thing
-		const char* home = std::getenv( "HOME" );
 
-		if( !home )
-		{
-			return L"";
-		}
-		std::string homeString = std::string( home );
-
-		return std::wstring( homeString.begin(), homeString.end() );
-	}
+	// Desktop-less systems (servers, containers, CI) often have no Documents folder. Callers expect an
+	// existing, writable directory, so fall back to the home directory as xdg-user-dirs itself does.
+	return BlueUtf8ToWide( home );
 }
 
 std::wstring BlueSysInfo::GetSharedApplicationDataDirectory() const
@@ -76,7 +188,7 @@ std::wstring BlueSysInfo::GetSharedApplicationDataDirectory() const
 		}
 		sharedApplicationDataPath = std::string( home ) + "/.local/share";
 	}
-	return std::wstring( sharedApplicationDataPath.begin(), sharedApplicationDataPath.end() );
+	return BlueUtf8ToWide( sharedApplicationDataPath ); // Byte-wise widening would mangle non-ASCII paths
 }
 
 std::wstring BlueSysInfo::GetUserApplicationDataDirectory() const
@@ -129,14 +241,25 @@ std::string BlueSysInfo::GetMachineUuid() const
 
 std::wstring BlueSysInfo::GetMachineName() const
 {
-	//LINUX-TODO + Test Coverage
-	return L"";
+	// Short host name, matching GetComputerNameW on Windows and the macOS implementation.
+	std::string host = GetHostName();
+	host = host.substr( 0, host.find( '.' ) );
+	return BlueUtf8ToWide( host );
 }
 
 std::wstring BlueSysInfo::GetDomainName() const
 {
-	//LINUX-TODO + Test Coverage
-	return L"";
+	// First label of the DNS domain (e.g. "corp" for "machine.corp.example.com"), matching
+	// DnsHostnameToComputerNameW on Windows and the macOS implementation. Empty if the host
+	// has no DNS domain.
+	const std::string host = GetFullyQualifiedHostName();
+	const auto firstDot = host.find( '.' );
+	if( firstDot == std::string::npos )
+	{
+		return {};
+	}
+	const std::string domain = host.substr( firstDot + 1 );
+	return BlueUtf8ToWide( domain.substr( 0, domain.find( '.' ) ) );
 }
 
 BlueSysInfoCpu::BlueSysInfoCpu() :
@@ -147,11 +270,13 @@ BlueSysInfoCpu::BlueSysInfoCpu() :
 	m_brand = pdmCpu.brand;
 	m_logicalCpuCount = pdmCpu.logicalCoreCount;
 	m_bitCount = static_cast<uint32_t>( pdmCpu.bitness );
-	m_family = 0; //LINUX-TODO missing from pdm
+	// PDM does not report the CPU family, so read it from the kernel (x86 only; 0 elsewhere).
+	m_family = static_cast<uint32_t>( ReadCpuInfoField( "cpu family", 0 ) );
 
 	std::string vendor = pdmCpu.vendor;
 	int model = pdmCpu.model;
 	int stepping = pdmCpu.stepping;
+	m_revision = static_cast<uint32_t>( ( model << 8 ) | stepping ); // Same encoding as macOS
 
 	switch( pdmCpu.architecture )
 	{

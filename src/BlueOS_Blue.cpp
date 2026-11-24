@@ -6,6 +6,9 @@
 
 #if __APPLE__
 #include <sys/sysctl.h>
+#elif __linux__
+#include <dirent.h>
+#include <strings.h>
 #endif
 
 #if BLUE_WITH_PYTHON
@@ -166,10 +169,63 @@ static PyObject *PyGetExeFilePids( PyObject* self, PyObject* args)
 #elif __linux__
 static PyObject* PyGetExeFilePids( PyObject* self, PyObject* args )
 {
-	//LINUX-TODO
-	PyObject* list = PyList_New( 0 );
+	if( !PyArg_ParseTuple( args, "" ) )
+	{
+		return nullptr;
+	}
 
-	return list;
+	DIR* proc = opendir( "/proc" );
+	if( !proc )
+	{
+		return PyErr_SetFromErrnoWithFilename( PyExc_OSError, "/proc" );
+	}
+	ON_BLOCK_EXIT( [&] { closedir( proc ); } );
+
+	BluePy list( PyList_New( 0 ) );
+	if( !list )
+	{
+		return nullptr;
+	}
+
+	while( dirent* entry = readdir( proc ) )
+	{
+		// Process directories are the purely numeric entries
+		char* end = nullptr;
+		const long pid = strtol( entry->d_name, &end, 10 );
+		if( pid <= 0 || *end != '\0' )
+		{
+			continue;
+		}
+
+		// /proc/<pid>/comm holds the executable name (truncated to 15 characters, which is plenty
+		// here). Processes can exit while we iterate, so failing to read one is not an error.
+		char commPath[64];
+		snprintf( commPath, sizeof( commPath ), "/proc/%ld/comm", pid );
+		FILE* commFile = fopen( commPath, "r" );
+		if( !commFile )
+		{
+			continue;
+		}
+		char comm[32] = {};
+		const bool readOk = fgets( comm, sizeof( comm ), commFile ) != nullptr;
+		fclose( commFile );
+		if( !readOk )
+		{
+			continue;
+		}
+		comm[strcspn( comm, "\n" )] = '\0';
+
+		// Windows matches "exefile.exe" case-insensitively and macOS matches "Exefile"
+		if( strcasecmp( comm, "exefile" ) == 0 )
+		{
+			if( PyList_Append( list, BluePy( PyLong_FromLong( pid ) ) ) != 0 )
+			{
+				return nullptr;
+			}
+		}
+	}
+
+	return list.Detach();
 }
 
 #else

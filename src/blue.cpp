@@ -213,7 +213,6 @@ HERR:
 	}
 	return r.Detach();
 #elif __linux__
-	//LINUX-TODO - Add test coverage
 	wchar_t* tmp = PyUnicode_AsWideCharString( ufn.o, nullptr );
 	if( !tmp )
 	{
@@ -358,9 +357,13 @@ HERR:
 	Py_RETURN_NONE;
 
 #elif __linux__
-	//LINUX-TODO - Add test coverage
-	Py_UNICODE* fileName = PyUnicode_AsWideCharString( ufn, nullptr );
-	CW2A filenameStr( reinterpret_cast<const wchar_t*>( fileName ) );
+	wchar_t* fileName = PyUnicode_AsWideCharString( ufn, nullptr );
+	if( !fileName )
+	{
+		return nullptr;
+	}
+	CW2A filenameStr( fileName );
+	PyMem_Free( fileName );
 	int f;
 	{
 		Ccp::PyAllowThreads _allow;

@@ -2230,6 +2230,8 @@ void BlueOS::ShowErrorMessageBox( const wchar_t* title, const wchar_t* message )
 
 	CFRelease( titleRef );
 	CFRelease( messageRef );
+#elif defined(__linux__)
+	DisplayUtf8ErrorMessageBox( WideToUTF8( title ).c_str(), WideToUTF8( message ).c_str() );
 #endif
 }
 

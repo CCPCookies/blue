@@ -9,7 +9,12 @@ add_executable(BlueCppUnitTests
     TestPyMemory.cpp
     ../../src/PyMemory.cpp
     TestBlueResMan.cpp
+    TestUtf8Posix.cpp
 )
+if(LINUX)
+    # The Linux locale and encoding helpers are internal to blue, so compile them in directly
+    target_sources(BlueCppUnitTests PRIVATE TestErrorMessage.cpp ../../src/errormessage.cpp)
+endif()
 target_precompile_headers(BlueCppUnitTests
     PRIVATE
         <Python.h>

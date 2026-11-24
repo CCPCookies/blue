@@ -9,6 +9,15 @@
 
 #if _WIN32
 #include "WinNls.h"
+#elif __linux__
+#include <cerrno>
+#include <cstdlib>
+#include <iconv.h>
+#include <map>
+#include <sstream>
+#include <spawn.h>
+#include <sys/wait.h>
+#include <unistd.h>
 #endif
 
 static const std::wstring languageArgName = L"language";
@@ -266,7 +275,36 @@ std::string GetOSLanguageCode()
 
 	return *result;
 #elif __linux__
-	//LINUX-TODO
+	// POSIX locale lookup order for messages: LANGUAGE (a colon separated priority list, GNU
+	// extension), then LC_ALL, LC_MESSAGES and LANG. Values look like "fr_FR.UTF-8" or "de:en".
+	// Use the first entry whose primary language we have strings for, like Windows does.
+	static const std::vector<std::string> linuxLanguageTags{ de, en, es, fr, ja, ko, ru, zh };
+
+	for( const char* variable : { "LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG" } )
+	{
+		const char* value = std::getenv( variable );
+		if( !value || !*value )
+		{
+			continue;
+		}
+
+		std::stringstream entries( value );
+		std::string entry;
+		while( std::getline( entries, entry, ':' ) )
+		{
+			std::string primary = entry.substr( 0, entry.find_first_of( "_.@-" ) );
+			std::transform( primary.begin(), primary.end(), primary.begin(), []( char c ) { return char( std::tolower( c ) ); } );
+			auto match = std::find( linuxLanguageTags.begin(), linuxLanguageTags.end(), primary );
+			if( match != linuxLanguageTags.end() )
+			{
+				return *match;
+			}
+		}
+
+		// The first variable that is set decides the locale, even if we have no strings for it.
+		// "C" and "POSIX" mean untranslated, which is English.
+		return en;
+	}
 	return en;
 #else
 #error Unsupported platform!
@@ -333,7 +371,7 @@ void BlueShowInvalidOSVersionError()
 #elif __APPLE__
 	std::string localizedMessage = TranslateErrorMessage( "Invalid macOS version", IDS_INVALIDMACOS );
 #elif __linux__
-	std::string localizedMessage = TranslateErrorMessage( "Invalid macOS version", IDS_INVALIDLINUX );
+	std::string localizedMessage = TranslateErrorMessage( "Invalid Linux version", IDS_INVALIDLINUX );
 #else
 	#error Unsupported platform!
 #endif
@@ -371,8 +409,108 @@ void DisplayErrorMessageBox( const char* title, const char* message )
 		CFRelease( messageRef );
 	}
 #elif __linux__
-	//LINUX-TODO + Test coverage but that might be not possible
+	// The string tables are stored in Windows code pages, so convert to UTF-8 before display
+	const char* codePage = GetIconvCodePageForLanguageCode( GetLanguageCode() );
+	DisplayUtf8ErrorMessageBox( ConvertCodePageToUtf8( title, codePage ).c_str(), ConvertCodePageToUtf8( message, codePage ).c_str() );
 #else
 #error Unsupported platform!
 #endif
 }
+
+#if __linux__
+namespace
+{
+/*
+	Runs a program and waits for it to exit. Returns false if it could not be started or failed.
+	posix_spawnp is used rather than fork so this is safe in a multi-threaded process.
+*/
+bool RunAndWait( const std::vector<std::string>& arguments )
+{
+	std::vector<char*> argv;
+	for( const auto& argument : arguments )
+	{
+		argv.push_back( const_cast<char*>( argument.c_str() ) );
+	}
+	argv.push_back( nullptr );
+
+	pid_t pid = 0;
+	if( posix_spawnp( &pid, argv[0], nullptr, nullptr, argv.data(), environ ) != 0 )
+	{
+		return false;
+	}
+
+	int status = 0;
+	while( waitpid( pid, &status, 0 ) < 0 )
+	{
+		if( errno != EINTR )
+		{
+			return false;
+		}
+	}
+	// zenity and kdialog exit with 0 when the dialog is dismissed with OK. 127 means the
+	// program could not be executed at all.
+	return WIFEXITED( status ) && WEXITSTATUS( status ) != 127;
+}
+}
+
+const char* GetIconvCodePageForLanguageCode( const std::string& languageCode )
+{
+	// Same code pages as the Windows codePageTable and the macOS encodingTable
+	static const std::map<std::string, const char*> iconvCodePageTable{
+		{ de, "CP1252" },
+		{ en, "CP1252" },
+		{ es, "CP1252" },
+		{ fr, "CP1252" },
+		{ ja, "CP932" },
+		{ ko, "CP949" },
+		{ ru, "CP866" },
+		{ zh, "CP936" }
+	};
+	auto iter = iconvCodePageTable.find( languageCode );
+	return iter != iconvCodePageTable.end() ? iter->second : "CP1252";
+}
+
+std::string ConvertCodePageToUtf8( const char* text, const char* codePage )
+{
+	std::string input( text ? text : "" );
+	iconv_t converter = iconv_open( "UTF-8", codePage );
+	if( converter == reinterpret_cast<iconv_t>( -1 ) )
+	{
+		return input;
+	}
+	ON_BLOCK_EXIT( [&] { iconv_close( converter ); } );
+
+	std::string output( input.size() * 4 + 1, '\0' ); // UTF-8 needs at most 4 bytes per character
+	char* in = input.data();
+	size_t inLeft = input.size();
+	char* out = output.data();
+	size_t outLeft = output.size();
+	if( iconv( converter, &in, &inLeft, &out, &outLeft ) == static_cast<size_t>( -1 ) )
+	{
+		return input;
+	}
+	output.resize( output.size() - outLeft );
+	return output;
+}
+
+void DisplayUtf8ErrorMessageBox( const char* title, const char* message )
+{
+	// Always leave a record, since there may be no desktop session to show a dialog in
+	CCP_LOGERR( "%s: %s", title, message );
+	fprintf( stderr, "%s: %s\n", title, message );
+
+	const bool hasDisplay = std::getenv( "DISPLAY" ) || std::getenv( "WAYLAND_DISPLAY" );
+	if( !hasDisplay )
+	{
+		return;
+	}
+
+	// There is no system message box API on Linux, so use the desktop's dialog helper:
+	// zenity (GNOME and most others) or kdialog (KDE). Both block until dismissed, like MessageBox.
+	if( RunAndWait( { "zenity", "--error", "--no-markup", "--title", title, "--text", message } ) )
+	{
+		return;
+	}
+	RunAndWait( { "kdialog", "--title", title, "--error", message } );
+}
+#endif

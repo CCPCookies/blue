@@ -3,6 +3,7 @@
 #include "StdAfx.h"
 #include "IBlueObjectProxy.h"
 #include "YamlReader.h"
+#include "BlueUtf8Posix.h"
 
 #include "IBlueOS.h"
 #include "IRootReader.h"
@@ -837,7 +838,7 @@ const wchar_t* YamlReader::ReadWString()
 	wchar_t* ret = (wchar_t*)CCP_MALLOC( (const char*)m_event->data.scalar.tag, sizeReq * sizeof( wchar_t ) );
 	MultiByteToWideChar( CP_UTF8, 0, asString, -1, ret, sizeReq );
 #else
-	auto str = UTF8ToWide( (const char*)m_event->data.scalar.value ) ;
+	auto str = BlueUtf8ToWide( (const char*)m_event->data.scalar.value ) ;
 
 	wchar_t* ret = (wchar_t*)CCP_MALLOC( (const char*)m_event->data.scalar.tag, ( str.length() + 1 ) * sizeof( wchar_t ) );
 	std::copy( begin( str ), end( str ), ret );

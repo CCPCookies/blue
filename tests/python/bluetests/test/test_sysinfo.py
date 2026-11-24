@@ -102,6 +102,71 @@ class TestSysInfo(unittest.TestCase):
     def testMachineUuidIsNotEmpty(self):
         self.assertNotEqual(blue.sysinfo.machineUuid, '')
 
+    def testComputerNameIsNotEmpty(self):
+        self.assertNotEqual(blue.sysinfo.computerName, '')
+
+    def testComputerNameIsNotQualified(self):
+        self.assertNotIn('.', blue.sysinfo.computerName)
+
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'Host name semantics differ per platform')
+    def testComputerNameMatchesHostName(self):
+        import socket
+        self.assertEqual(blue.sysinfo.computerName, socket.gethostname().split('.')[0])
+
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'Domain name semantics differ per platform')
+    def testDomainNameIsFirstLabelOfDnsDomain(self):
+        import socket
+        labels = socket.getfqdn().split('.')
+        expected = labels[1] if len(labels) > 1 else ''
+        self.assertEqual(blue.sysinfo.domainName, expected)
+
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux specific documents folder lookup')
+    def testUserDocumentsDirectoryHonorsXdgEnvironmentVariable(self):
+        documents = tempfile.mkdtemp()
+        previous = os.environ.get('XDG_DOCUMENTS_DIR')
+        os.environ['XDG_DOCUMENTS_DIR'] = documents
+        try:
+            self.assertEqual(blue.sysinfo.GetUserDocumentsDirectory(), documents)
+        finally:
+            if previous is None:
+                del os.environ['XDG_DOCUMENTS_DIR']
+            else:
+                os.environ['XDG_DOCUMENTS_DIR'] = previous
+            os.rmdir(documents)
+
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux specific documents folder lookup')
+    def testUserDocumentsDirectoryReadsUserDirsFile(self):
+        configHome = tempfile.mkdtemp()
+        documents = tempfile.mkdtemp()
+        with open(os.path.join(configHome, 'user-dirs.dirs'), 'w') as f:
+            f.write('# comment\nXDG_DESKTOP_DIR="$HOME/Desktop"\nXDG_DOCUMENTS_DIR="%s"\n' % documents)
+        saved = {k: os.environ.get(k) for k in ('XDG_CONFIG_HOME', 'XDG_DOCUMENTS_DIR')}
+        os.environ['XDG_CONFIG_HOME'] = configHome
+        os.environ.pop('XDG_DOCUMENTS_DIR', None)
+        try:
+            self.assertEqual(blue.sysinfo.GetUserDocumentsDirectory(), documents)
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+            os.remove(os.path.join(configHome, 'user-dirs.dirs'))
+            os.rmdir(configHome)
+            os.rmdir(documents)
+
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux specific documents folder lookup')
+    def testUserDocumentsDirectoryFallsBackToHomeWhenMissing(self):
+        saved = os.environ.get('XDG_DOCUMENTS_DIR')
+        os.environ['XDG_DOCUMENTS_DIR'] = os.path.join(tempfile.gettempdir(), 'does-not-exist-%d' % os.getpid())
+        try:
+            self.assertEqual(blue.sysinfo.GetUserDocumentsDirectory(), os.path.expanduser('~'))
+        finally:
+            if saved is None:
+                del os.environ['XDG_DOCUMENTS_DIR']
+            else:
+                os.environ['XDG_DOCUMENTS_DIR'] = saved
+
 
 class TestCpu(unittest.TestCase):
     def testCpuCountIsCorrect(self):
@@ -112,6 +177,14 @@ class TestCpu(unittest.TestCase):
 
     def testBrandIsNotEmpty(self):
         self.assertNotEqual(blue.sysinfo.cpu.brand, '')
+
+    @unittest.skipUnless(platform.machine().lower() in ('x86_64', 'amd64', 'i386', 'i686', 'x86'), 'CPU family is only reported for x86')
+    def testFamilyIsReportedOnX86(self):
+        self.assertGreater(blue.sysinfo.cpu.family, 0)
+
+    @unittest.skipUnless(platform.machine().lower() in ('x86_64', 'amd64', 'i386', 'i686', 'x86'), 'CPU family is only reported for x86')
+    def testIdentifierContainsFamily(self):
+        self.assertIn('Family%d' % blue.sysinfo.cpu.family, blue.sysinfo.cpu.identifier.replace(' ', ''))
 
 
 class TestOs(unittest.TestCase):
