@@ -4,6 +4,7 @@ import unittest
 import blue
 import tempfile
 import shutil
+import sys
 
 YAML_ERROR_STRINGS_STRICT = [
     # Empty string
@@ -228,6 +229,7 @@ class TestYamlWriterAndReader(unittest.TestCase):
     def testYamlReaderUInt64(self):
         self._testYamlReader("myUInt64",MAX_UINT64)
 
+    @unittest.skipIf(sys.platform.startswith("linux"), "Not supported on Linux")
     def testYamlReaderDouble(self):
         import locale
         orig = locale.setlocale(locale.LC_ALL)
