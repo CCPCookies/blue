@@ -7,9 +7,9 @@
   "registries": [
     {
       "kind": "git",
-      "repository": "https://github.com/ccptoebeans/vcpkg-registry.git",
-      "reference": "bluesupport",
-      "baseline": "7f58bbe802ba2cc9c941d31f14ab9391c66570be",
+      "repository": "https://github.com/carbonengine/vcpkg-registry.git",
+      "reference": "feature/linux",
+      "baseline": "5d083240fafc1861787a8182022248cb45938c75",
       "packages": [
         "python3",
         "carbon-*",
