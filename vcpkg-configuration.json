@@ -9,7 +9,7 @@
       "kind": "git",
       "repository": "https://github.com/carbonengine/vcpkg-registry.git",
       "reference": "feature/linux",
-      "baseline": "5d083240fafc1861787a8182022248cb45938c75",
+      "baseline": "99f97958bc20a11210eb0fbee25963b6474bb37a",
       "packages": [
         "python3",
         "carbon-*",
