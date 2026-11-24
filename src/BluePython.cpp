@@ -1371,21 +1371,11 @@ bool BluePyOS::SendEvent(
 	)
 {
 	bool ret;
-
-	if (format != NULL)
-	{
-		va_list vargs;
-		va_start(vargs, format);
-		ret = DispatchEvent(
-			caller, context, eventName, pRetval, format, vargs, false);
-		va_end(vargs);
-		return ret;
-	}
-	else
-	{
-		ret = DispatchEvent(
-			caller, context, eventName, pRetval, format, NULL, false);
-	}
+        va_list vargs;
+	va_start(vargs, format);
+	ret = DispatchEvent(
+		caller, context, eventName, pRetval, format, vargs, false);
+	va_end(vargs);
 
 	return ret;
 }
@@ -1403,21 +1393,11 @@ bool BluePyOS::PostEvent(
 	)
 {
 	bool ret;
-
-	if (format != NULL)
-	{
-		va_list vargs;
-		va_start(vargs, format);
-		ret = DispatchEvent(
-			caller, context, eventName, NULL, format, vargs, true);
-		va_end(vargs);
-		return ret;
-	}
-	else
-	{
-		ret = DispatchEvent(
-			caller, context, eventName,  NULL, NULL, NULL, true);
-	}
+	va_list vargs;
+	va_start(vargs, format);
+	ret = DispatchEvent(
+		caller, context, eventName, NULL, format, vargs, true);
+	va_end(vargs);
 
 	return ret;
 }
