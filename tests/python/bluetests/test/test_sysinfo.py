@@ -98,6 +98,7 @@ class TestSysInfo(unittest.TestCase):
         self.assertLess(start, now)
         self.assertLess(now - start, 10 * 60 * 60)
 
+    @unittest.skipIf(sys.platform.startswith("linux"), "Not supported on Linux, we run tests in a containerized environment.")
     def testMachineUuidIsNotEmpty(self):
         self.assertNotEqual(blue.sysinfo.machineUuid, '')
 
