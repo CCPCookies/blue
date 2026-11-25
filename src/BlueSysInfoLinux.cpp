@@ -2,7 +2,6 @@
 
 #include "StdAfx.h"
 #include "BlueSysInfo.h"
-#include "BlueUtf8Posix.h"
 #include "pdm.h"
 
 #include <algorithm>
@@ -16,6 +15,13 @@
 namespace
 {
 const int64_t s_startTime = TimeNow();
+
+// Widens byte by byte, as the original Linux code did. Correct for ASCII only.
+// TODO: Use UTF8ToWide once carbon-core's Linux implementation no longer pads its result with NULs.
+std::wstring ToWide( const std::string& text )
+{
+	return std::wstring( text.begin(), text.end() );
+}
 
 std::string GetHomeDirectory()
 {
@@ -161,12 +167,12 @@ std::wstring BlueSysInfo::GetUserDocumentsDirectory() const
 	std::error_code error;
 	if( !path.empty() && std::filesystem::is_directory( path, error ) )
 	{
-		return BlueUtf8ToWide( path );
+		return ToWide( path );
 	}
 
 	// Desktop-less systems (servers, containers, CI) often have no Documents folder. Callers expect an
 	// existing, writable directory, so fall back to the home directory as xdg-user-dirs itself does.
-	return BlueUtf8ToWide( home );
+	return ToWide( home );
 }
 
 std::wstring BlueSysInfo::GetSharedApplicationDataDirectory() const
@@ -189,7 +195,7 @@ std::wstring BlueSysInfo::GetSharedApplicationDataDirectory() const
 		}
 		sharedApplicationDataPath = std::string( home ) + "/.local/share";
 	}
-	return BlueUtf8ToWide( sharedApplicationDataPath ); // Byte-wise widening would mangle non-ASCII paths
+	return ToWide( sharedApplicationDataPath );
 }
 
 std::wstring BlueSysInfo::GetUserApplicationDataDirectory() const
@@ -254,7 +260,7 @@ std::wstring BlueSysInfo::GetMachineName() const
 	// Short host name, matching GetComputerNameW on Windows and the macOS implementation.
 	std::string host = GetHostName();
 	host = host.substr( 0, host.find( '.' ) );
-	return BlueUtf8ToWide( host );
+	return ToWide( host );
 }
 
 std::wstring BlueSysInfo::GetDomainName() const
@@ -269,7 +275,7 @@ std::wstring BlueSysInfo::GetDomainName() const
 		return {};
 	}
 	const std::string domain = host.substr( firstDot + 1 );
-	return BlueUtf8ToWide( domain.substr( 0, domain.find( '.' ) ) );
+	return ToWide( domain.substr( 0, domain.find( '.' ) ) );
 }
 
 BlueSysInfoCpu::BlueSysInfoCpu() :

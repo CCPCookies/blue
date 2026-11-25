@@ -2,7 +2,6 @@
 
 #include "StdAfx.h"
 #include "BlueSysInfo.h"
-#include "BlueUtf8Posix.h"
 #include "pdm.h"
 #include "pdm/protobuf.h"
 #include "BlueMemStream.h"
@@ -66,12 +65,12 @@ bool BlueSysInfo::IsWine() const
 
 std::wstring BlueSysInfo::GetWineVersion() const
 {
-	return BlueUtf8ToWide( PDM::GetWineVersion() );
+	return UTF8ToWide( PDM::GetWineVersion() );
 }
 
 std::wstring BlueSysInfo::GetWineHostOs() const
 {
-	return BlueUtf8ToWide( PDM::GetWineHostOs() );
+	return UTF8ToWide( PDM::GetWineHostOs() );
 }
 
 std::vector<BlueSysInfoNetworkAdapterPtr> BlueSysInfo::GetNetworkAdapters() const
@@ -82,7 +81,7 @@ std::vector<BlueSysInfoNetworkAdapterPtr> BlueSysInfo::GetNetworkAdapters() cons
 	{
 		BlueSysInfoNetworkAdapterPtr ptr;
 		ptr.CreateInstance();
-		ptr->m_name = BlueUtf8ToWide( adapter.name );
+		ptr->m_name = UTF8ToWide( adapter.name );
 		const auto& mac = adapter.macAddress;
 		auto macAddressByteString = std::string( mac.begin(), mac.end() );
 		ptr->m_macAddress = PyBytes_FromStringAndSize( macAddressByteString.c_str(), macAddressByteString.size() );
@@ -97,7 +96,7 @@ std::vector<BlueSysInfoNetworkAdapterPtr> BlueSysInfo::GetNetworkAdapters() cons
 
 std::wstring BlueSysInfo::GetPDMData() const
 {
-	return BlueUtf8ToWide( PDM::PDMDataToFormattedString( PDM::RetrievePDMData( "EVE", "" ) ) );
+	return UTF8ToWide( PDM::PDMDataToFormattedString( PDM::RetrievePDMData( "EVE", "" ) ) );
 }
 
 #ifdef _WIN32

@@ -2,7 +2,6 @@
 
 #include "StdAfx.h"
 #include "BlueClipboard.h"
-#include "BlueUtf8Posix.h"
 
 #include <cerrno>
 #include <csignal>
@@ -291,7 +290,9 @@ BlueClipboard::OperationResult BlueClipboard::GetData( std::wstring& data ) cons
 	auto result = GetUtf8( utf8 );
 	if( result == CLIPBOARD_OK )
 	{
-		data = BlueUtf8ToWide( utf8 );
+		// Widens byte by byte, so this is correct for ASCII only.
+		// TODO: Use UTF8ToWide once carbon-core's Linux implementation no longer pads its result with NULs.
+		data = std::wstring( utf8.begin(), utf8.end() );
 	}
 	return result;
 }
