@@ -7,6 +7,7 @@
 #if __APPLE__
 #include <sys/sysctl.h>
 #elif __linux__
+#include <filesystem>
 #include <dirent.h>
 #include <strings.h>
 #endif
@@ -167,6 +168,8 @@ static PyObject *PyGetExeFilePids( PyObject* self, PyObject* args)
 }
 
 #elif __linux__
+
+
 static PyObject* PyGetExeFilePids( PyObject* self, PyObject* args )
 {
 	if( !PyArg_ParseTuple( args, "" ) )
@@ -197,27 +200,18 @@ static PyObject* PyGetExeFilePids( PyObject* self, PyObject* args )
 			continue;
 		}
 
-		// /proc/<pid>/comm holds the executable name (truncated to 15 characters, which is plenty
-		// here). Processes can exit while we iterate, so failing to read one is not an error.
-		char commPath[64];
-		snprintf( commPath, sizeof( commPath ), "/proc/%ld/comm", pid );
-		FILE* commFile = fopen( commPath, "r" );
-		if( !commFile )
-		{
-			continue;
+                char commPath[64];
+		snprintf( commPath, sizeof( commPath ), "/proc/%ld/exe", pid );
+		std::string filename;
+		try {
+		  auto symlink = std::filesystem::read_symlink(commPath);
+	 	  filename = symlink.filename();
 		}
-		char comm[32] = {};
-		const bool readOk = fgets( comm, sizeof( comm ), commFile ) != nullptr;
-		fclose( commFile );
-		if( !readOk )
-		{
-			continue;
+		catch (const std::filesystem::filesystem_error& _e) {
+                  continue;
 		}
-		comm[strcspn( comm, "\n" )] = '\0';
-
 		// Windows matches "exefile.exe" case-insensitively and macOS matches "Exefile"
-		if( strcasecmp( comm, "exefile" ) == 0 )
-		{
+		if (filename.find("exefile") != std::string::npos) {
 			if( PyList_Append( list, BluePy( PyLong_FromLong( pid ) ) ) != 0 )
 			{
 				return nullptr;
