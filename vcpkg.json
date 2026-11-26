@@ -44,19 +44,7 @@
     },
     {
       "name": "curl",
-      "version>=": "7.78.0",
-      "features": [
-        {
-          "name": "sspi",
-          "platform": "windows"
-        }
-      ]
+      "version>=": "8.23.0"
     }
-  ],
-  "overrides": [
-    {
-      "name": "openssl",
-      "version": "3.6.2"
-    }  
   ]
 }
